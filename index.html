@@ -1,0 +1,302 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Timer com Bip</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: coluna única centralizada, display grande de mm:ss, controles abaixo, trilha de minutos. */
+:root {
+  --bg: #f3f4f1;
+  --surface: #ffffff;
+  --fg: #1c2420;
+  --muted: #667069;
+  --line: #d9dcd6;
+  --accent: #1f6f5c;
+  --accent-fg: #ffffff;
+  --done: #b4532a;
+  --font-display: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121714; --surface: #1a211d; --fg: #e8ece8; --muted: #94a09a;
+    --line: #2d3731; --accent: #4fc3a1; --accent-fg: #0c1511; --done: #e8895a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121714; --surface: #1a211d; --fg: #e8ece8; --muted: #94a09a;
+  --line: #2d3731; --accent: #4fc3a1; --accent-fg: #0c1511; --done: #e8895a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  padding-block: 32px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 440px; margin: 0 auto; display: grid; gap: 24px; }
+h1 { font-size: 15px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 28px 20px;
+  display: grid;
+  gap: 20px;
+  justify-items: center;
+}
+.time {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(56px, 20vw, 92px);
+  line-height: 1;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.time.done { color: var(--done); }
+.status { color: var(--muted); font-size: 14px; min-height: 1.4em; text-align: center; }
+.trail { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 100%; }
+.dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); }
+.dot.on { background: var(--accent); border-color: var(--accent); }
+.dot.last { border-radius: 4px; }
+.dot.last.on { background: var(--done); border-color: var(--done); }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+button {
+  font: inherit; font-weight: 500;
+  min-height: 44px; padding: 0 22px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface); color: var(--fg);
+  cursor: pointer;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); min-width: 128px; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.setup { display: grid; gap: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+label { font-size: 14px; color: var(--muted); }
+input[type=number] {
+  font-family: var(--font-display); font-size: 20px; font-weight: 600;
+  width: 96px; min-height: 44px; padding: 0 12px;
+  border-radius: 10px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--fg);
+}
+.chip { min-height: 36px; padding: 0 14px; font-size: 14px; }
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.hint { font-size: 13px; color: var(--muted); margin: 0; line-height: 1.5; }
+@media (prefers-reduced-motion: no-preference) { .dot { transition: background .2s, border-color .2s; } }
+</style>
+
+<main>
+  <h1>Timer com bip</h1>
+
+  <section class="card" aria-live="off">
+    <div class="time" id="time">04:00</div>
+    <div class="status" id="status">Pronto. Bip curto a cada minuto, bip longo no fim.</div>
+    <div class="trail" id="trail" aria-hidden="true"></div>
+    <div class="controls">
+      <button class="primary" id="go" type="button">Iniciar</button>
+      <button id="reset" type="button">Zerar</button>
+    </div>
+  </section>
+
+  <section class="setup">
+    <div class="row">
+      <label for="min">Duração (minutos)</label>
+      <input id="min" type="number" inputmode="numeric" min="1" max="180" value="4">
+    </div>
+    <div class="row" id="presets"></div>
+    <div class="row"><button id="test" type="button" class="chip">Testar som</button></div>
+    <p class="hint">Mantenha a aba aberta e o volume ligado. Navegadores só liberam áudio depois de um toque, por isso o som é ativado ao iniciar.</p>
+  </section>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var elTime = $("time"), elStatus = $("status"), elTrail = $("trail");
+  var elGo = $("go"), elReset = $("reset"), elMin = $("min"), elTest = $("test");
+  var presetsEl = $("presets");
+
+  var total = 4 * 60000;   // ms
+  var base = 0;            // ms acumulados antes da última pausa
+  var startedAt = 0;
+  var fired = 0;           // bips de minuto já disparados
+  var running = false, finished = false, tick = null, wake = null;
+  var ctx = null;
+
+  function audio() {
+    try {
+      if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === "suspended") ctx.resume();
+    } catch (e) { ctx = null; }
+    return ctx;
+  }
+
+  function tone(freq, start, dur, vol) {
+    var a = audio(); if (!a) return;
+    var t0 = a.currentTime + start;
+    var o = a.createOscillator(), g = a.createGain();
+    o.type = "sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+    g.gain.setValueAtTime(vol, t0 + dur - 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(a.destination);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  function shortBeep() { tone(880, 0, 0.25, 0.35); }
+  function longBeep() {
+    tone(660, 0, 0.5, 0.4);
+    tone(880, 0.55, 0.5, 0.4);
+    tone(1175, 1.1, 1.1, 0.4);
+  }
+
+  function minutes() {
+    var v = parseInt(elMin.value, 10);
+    if (isNaN(v)) v = 1;
+    return Math.min(180, Math.max(1, v));
+  }
+
+  function fmt(ms) {
+    var s = Math.max(0, Math.ceil(ms / 1000));
+    var m = Math.floor(s / 60), r = s % 60;
+    return (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r;
+  }
+
+  function elapsed() { return base + (running ? Date.now() - startedAt : 0); }
+
+  function drawTrail() {
+    var n = total / 60000;
+    elTrail.innerHTML = "";
+    if (n > 30) return;
+    for (var i = 1; i <= n; i++) {
+      var d = document.createElement("span");
+      d.className = "dot" + (i === n ? " last" : "") + (i <= fired ? " on" : "");
+      elTrail.appendChild(d);
+    }
+  }
+
+  function render() {
+    var e = Math.min(elapsed(), total);
+    elTime.textContent = fmt(total - e);
+    elTime.className = "time" + (finished ? " done" : "");
+    var dots = elTrail.children;
+    for (var i = 0; i < dots.length; i++) dots[i].classList.toggle("on", i < fired);
+  }
+
+  function setStatus(t) { elStatus.textContent = t; }
+
+  function loop() {
+    var e = elapsed();
+    var mins = Math.floor(e / 60000);
+    var n = total / 60000;
+    while (fired < mins && fired < n) {
+      fired++;
+      if (fired === n) {
+        finish();
+        return;
+      }
+      shortBeep();
+      setStatus("Minuto " + fired + " de " + n + " concluído.");
+    }
+    render();
+  }
+
+  function finish() {
+    running = false; finished = true;
+    clearInterval(tick); tick = null;
+    base = total;
+    longBeep();
+    setStatus("Tempo esgotado.");
+    elGo.textContent = "Iniciar";
+    releaseWake();
+    render();
+  }
+
+  function start() {
+    audio();
+    if (finished) reset();
+    if (!running && base === 0 && fired === 0) {
+      total = minutes() * 60000;
+      drawTrail();
+    }
+    running = true;
+    startedAt = Date.now();
+    elGo.textContent = "Pausar";
+    setStatus("Correndo. Próximo bip em " + (fired + 1) + " min.");
+    tick = setInterval(loop, 200);
+    requestWake();
+    loop();
+  }
+
+  function pause() {
+    base = elapsed();
+    running = false;
+    clearInterval(tick); tick = null;
+    elGo.textContent = "Continuar";
+    setStatus("Pausado.");
+    releaseWake();
+    render();
+  }
+
+  function reset() {
+    running = false; finished = false;
+    clearInterval(tick); tick = null;
+    base = 0; fired = 0;
+    total = minutes() * 60000;
+    elGo.textContent = "Iniciar";
+    setStatus("Pronto. Bip curto a cada minuto, bip longo no fim.");
+    drawTrail();
+    releaseWake();
+    render();
+  }
+
+  function requestWake() {
+    try {
+      if (navigator.wakeLock && navigator.wakeLock.request) {
+        navigator.wakeLock.request("screen").then(function (l) { wake = l; }, function () {});
+      }
+    } catch (e) {}
+  }
+  function releaseWake() {
+    try { if (wake) { wake.release(); wake = null; } } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (running && document.visibilityState === "visible") { requestWake(); loop(); }
+  });
+
+  elGo.addEventListener("click", function () { running ? pause() : start(); });
+  elReset.addEventListener("click", reset);
+  elTest.addEventListener("click", function () { shortBeep(); setTimeout(longBeep, 600); });
+
+  function syncPresets() {
+    var v = minutes();
+    var btns = presetsEl.children;
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].setAttribute("aria-pressed", String(parseInt(btns[i].dataset.m, 10) === v));
+    }
+  }
+  [4, 5, 10, 15, 25, 45].forEach(function (m) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.dataset.m = m; b.textContent = m + " min";
+    b.addEventListener("click", function () {
+      elMin.value = m;
+      if (running || base > 0 || finished) { reset(); } else { reset(); }
+      syncPresets();
+    });
+    presetsEl.appendChild(b);
+  });
+  elMin.addEventListener("change", function () {
+    elMin.value = minutes();
+    reset(); syncPresets();
+  });
+
+  reset(); syncPresets();
+})();
+</script>
+
+</body></html>
